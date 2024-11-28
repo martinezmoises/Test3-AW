@@ -1,0 +1,8 @@
+CREATE TABLE reviews (
+    id SERIAL PRIMARY KEY,
+    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rating NUMERIC(2, 1) CHECK (rating >= 1 AND rating <= 5),
+    review TEXT NOT NULL,
+    review_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
