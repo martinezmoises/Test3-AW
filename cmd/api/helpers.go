@@ -133,3 +133,13 @@ func (a *applicationDependencies) getSingleIntegerParameter(queryParameters url.
 	return intValue
 
 }
+
+// genericResponse sends a JSON response with a message
+func (a *applicationDependencies) genericResponse(w http.ResponseWriter, r *http.Request, statusCode int, message string) {
+	response := envelope{"message": message}
+
+	err := a.writeJSON(w, statusCode, response, nil)
+	if err != nil {
+		a.serverErrorResponse(w, r, err)
+	}
+}

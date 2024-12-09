@@ -46,5 +46,11 @@ func (a *applicationDependencies) routes() http.Handler {
 	router.HandlerFunc(http.MethodPut, "/api/v1/reviews/:id", a.requireActivatedUser(a.updateReviewHandler))        // Update review
 	router.HandlerFunc(http.MethodDelete, "/api/v1/reviews/:id", a.requireActivatedUser(a.deleteReviewHandler))     // Delete review
 
-	return a.recoverPanic(a.rateLimit(a.authenticate(router)))
+	// Password Reset Endpoints
+	router.HandlerFunc(http.MethodPost, "/v1/tokens/password-reset", a.createPasswordResetTokenHandler) // Generate password reset token
+	router.HandlerFunc(http.MethodPut, "/v1/users/password", a.updateUserPasswordHandler)               // Reset password
+
+	//Updated with Enabling CORS
+	return a.recoverPanic(a.enableCORS(a.rateLimit(a.authenticate(router))))
+
 }

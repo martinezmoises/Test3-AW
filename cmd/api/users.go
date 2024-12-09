@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -207,4 +208,124 @@ func (a *applicationDependencies) getUserReviewsHandler(w http.ResponseWriter, r
 	if err != nil {
 		a.serverErrorResponse(w, r, err)
 	}
+}
+
+// Create a password reset token
+func (a *applicationDependencies) createPasswordResetTokenHandler(w http.ResponseWriter, r *http.Request) {
+	var incomingData struct {
+		Email string `json:"email"`
+	}
+
+	err := a.readJSON(w, r, &incomingData)
+	if err != nil {
+		a.badRequestResponse(w, r, err)
+		return
+	}
+
+	v := validator.New()
+	data.ValidateEmail(v, incomingData.Email)
+	if !v.IsEmpty() {
+		a.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	user, err := a.userModel.GetByEmail(incomingData.Email)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrRecordNotFound):
+			// Send a generic response to prevent enumeration
+			a.genericResponse(w, r, http.StatusOK, "an email will be sent to you containing password reset instructions")
+		default:
+			a.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	// Ensure the user is activated
+	if !user.Activated {
+		a.failedValidationResponse(w, r, map[string]string{"email": "this account is not activated"})
+		return
+	}
+
+	// Generate token
+	token, err := a.tokenModel.New(user.ID, 1*time.Hour, data.ScopePasswordReset)
+	if err != nil {
+		a.serverErrorResponse(w, r, err)
+		return
+	}
+
+	// Send reset email
+	emailData := map[string]any{
+		"passwordResetToken": token.Plaintext,
+		"userID":             user.ID,
+	}
+
+	// Send reset email
+	err = a.mailer.Send(user.Email, "password_reset.tmpl", emailData)
+	if err != nil {
+		// Corrected logging format for slog.Logger
+		a.logger.Error("failed to send password reset email",
+			slog.String("email", user.Email),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	// Respond to the client
+	a.genericResponse(w, r, http.StatusOK, "an email will be sent to you containing password reset instructions")
+}
+
+// Reset the user's password
+func (a *applicationDependencies) updateUserPasswordHandler(w http.ResponseWriter, r *http.Request) {
+	var incomingData struct {
+		Password string `json:"password"`
+		Token    string `json:"token"`
+	}
+
+	err := a.readJSON(w, r, &incomingData)
+	if err != nil {
+		a.badRequestResponse(w, r, err)
+		return
+	}
+
+	v := validator.New()
+	data.ValidatePasswordPlaintext(v, incomingData.Password)
+	data.ValidateTokenPlaintext(v, incomingData.Token)
+	if !v.IsEmpty() {
+		a.failedValidationResponse(w, r, v.Errors)
+		return
+	}
+
+	// Verify token and fetch user
+	user, err := a.userModel.GetForToken(data.ScopePasswordReset, incomingData.Token)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrRecordNotFound):
+			a.failedValidationResponse(w, r, map[string]string{"token": "invalid or expired token"})
+		default:
+			a.serverErrorResponse(w, r, err)
+		}
+		return
+	}
+
+	// Update user's password
+	err = user.Password.Set(incomingData.Password)
+	if err != nil {
+		a.serverErrorResponse(w, r, err)
+		return
+	}
+
+	err = a.userModel.Update(user)
+	if err != nil {
+		a.serverErrorResponse(w, r, err)
+		return
+	}
+
+	// Delete all password reset tokens
+	err = a.tokenModel.DeleteAllForUser(data.ScopePasswordReset, user.ID)
+	if err != nil {
+		a.serverErrorResponse(w, r, err)
+		return
+	}
+
+	a.genericResponse(w, r, http.StatusOK, "your password was successfully reset")
 }

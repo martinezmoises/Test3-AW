@@ -14,6 +14,7 @@ import (
 // Purpose of the token
 const ScopeActivation = "activation"
 const ScopeAuthentication = "authentication"
+const ScopePasswordReset = "password_reset"
 
 // Define our token
 type Token struct {
